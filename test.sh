@@ -67,4 +67,26 @@ Number of Threads (users): ${__P(users,10)}
 Ramp-Up Period: ${__P(ramp_up,1)}
  
 Loop Count: ${__P(loops,1)}
+
+
+
+JMETER_PIDS=$(ps aux | grep '[j]meter' | awk '{print $2}')
+
+if [ -z "$JMETER_PIDS" ]; then
+  echo "No running JMeter processes found."
+else
+  echo "Killing JMeter processes: $JMETER_PIDS"
+  # Kill processes gracefully first
+  kill $JMETER_PIDS
+  sleep 2
+
+  # Force kill any still alive
+  JMETER_PIDS=$(ps aux | grep '[j]meter' | awk '{print $2}')
+  if [ -n "$JMETER_PIDS" ]; then
+    echo "Force killing remaining JMeter processes: $JMETER_PIDS"
+    kill -9 $JMETER_PIDS
+  else
+    echo "All JMeter processes stopped successfully."
+  fi
+fi
  
