@@ -1,120 +1,123 @@
 
-
 Cypress.Commands.add('getAllStorage', () => {
 	cy.window().then((win) => {
-		// Get all localStorage data from all origins
+		// Get all localStorage data
 		const allLocalStorage = {}
-		try {
-			// Try to access chrome.storage.local if available
-			if (win.chrome && win.chrome.storage && win.chrome.storage.local) {
-				win.chrome.storage.local.get(null, (items) => {
-					allLocalStorage['chrome.storage.local'] = items
-				})
-			}
-		} catch (e) {
-			cy.log('Could not access chrome.storage.local:', e)
-		}
-
-		// Get current origin's localStorage
-		const currentLocalStorage = {}
-		for (let i = 0; i < win.localStorage.length; i++) {
-			const key = win.localStorage.key(i)
-			currentLocalStorage[key] = win.localStorage.getItem(key)
-		}
-		allLocalStorage[win.location.origin] = currentLocalStorage
-
-		// Store in Cypress.env
-		Cypress.env('allLocalStorage', allLocalStorage)
-		cy.log('All LocalStorage:', allLocalStorage)
-
-		// Get all sessionStorage data
 		const allSessionStorage = {}
-		const currentSessionStorage = {}
-		for (let i = 0; i < win.sessionStorage.length; i++) {
-			const key = win.sessionStorage.key(i)
-			currentSessionStorage[key] = win.sessionStorage.getItem(key)
+
+		// Function to get storage data for a specific origin
+		const getStorageForOrigin = (origin) => {
+			return new Promise((resolve) => {
+				// Create an iframe to access the origin's storage
+				const iframe = document.createElement('iframe')
+				iframe.src = origin
+				iframe.style.display = 'none'
+				document.body.appendChild(iframe)
+
+				iframe.onload = () => {
+					try {
+						const localStorageData = {}
+						const sessionStorageData = {}
+
+						// Get localStorage
+						for (let i = 0; i < iframe.contentWindow.localStorage.length; i++) {
+							const key = iframe.contentWindow.localStorage.key(i)
+							localStorageData[key] = iframe.contentWindow.localStorage.getItem(key)
+						}
+
+						// Get sessionStorage
+						for (let i = 0; i < iframe.contentWindow.sessionStorage.length; i++) {
+							const key = iframe.contentWindow.sessionStorage.key(i)
+							sessionStorageData[key] = iframe.contentWindow.sessionStorage.getItem(key)
+						}
+
+						allLocalStorage[origin] = localStorageData
+						allSessionStorage[origin] = sessionStorageData
+
+						document.body.removeChild(iframe)
+						resolve()
+					} catch (e) {
+						cy.log(`Could not access storage for ${origin}:`, e)
+						document.body.removeChild(iframe)
+						resolve()
+					}
+				}
+			})
 		}
-		allSessionStorage[win.location.origin] = currentSessionStorage
 
-		// Store in Cypress.env
-		Cypress.env('allSessionStorage', allSessionStorage)
-		cy.log('All SessionStorage:', allSessionStorage)
-	})
-})
+		// List of origins to check (you can modify this list based on your needs)
+		const origins = [
+			win.location.origin,
+			'https://api.example.com',
+			'https://auth.example.com',
+			'https://cdn.example.com',
+			// Add more origins as needed
+		]
 
-Cypress.Commands.add('getSessionStorageForOrigin', (origin) => {
-	cy.visit(origin).then(() => {
-		cy.window().then((win) => {
-			const sessionStorageData = {}
-			for (let i = 0; i < win.sessionStorage.length; i++) {
-				const key = win.sessionStorage.key(i)
-				sessionStorageData[key] = win.sessionStorage.getItem(key)
-			}
-
-			// Update the allSessionStorage object
-			const allSessionStorage = Cypress.env('allSessionStorage') || {}
-			allSessionStorage[origin] = sessionStorageData
+		// Get storage data for each origin
+		Promise.all(origins.map((origin) => getStorageForOrigin(origin))).then(() => {
+			// Store in Cypress.env
+			Cypress.env('allLocalStorage', allLocalStorage)
 			Cypress.env('allSessionStorage', allSessionStorage)
 
-			cy.log(`SessionStorage for ${origin}:`, sessionStorageData)
+			cy.log('All LocalStorage:', allLocalStorage)
+			cy.log('All SessionStorage:', allSessionStorage)
 		})
 	})
 })
 
 Cypress.Commands.add('restoreAllStorage', () => {
 	cy.window().then((win) => {
-		// Clear existing storage
-		win.localStorage.clear()
-		win.sessionStorage.clear()
-
-		// Restore localStorage from all origins
 		const allLocalStorage = Cypress.env('allLocalStorage')
-		if (allLocalStorage) {
-			// Restore current origin's localStorage
-			const currentOriginStorage = allLocalStorage[win.location.origin]
-			if (currentOriginStorage) {
-				Object.entries(currentOriginStorage).forEach(([key, value]) => {
-					win.localStorage.setItem(key, value)
-				})
-			}
-
-			// Try to restore chrome.storage.local if available
-			if (win.chrome && win.chrome.storage && win.chrome.storage.local) {
-				const chromeStorage = allLocalStorage['chrome.storage.local']
-				if (chromeStorage) {
-					win.chrome.storage.local.set(chromeStorage)
-				}
-			}
-		}
-
-		// Restore sessionStorage for current origin
 		const allSessionStorage = Cypress.env('allSessionStorage')
-		if (allSessionStorage) {
-			const currentOriginSessionStorage = allSessionStorage[win.location.origin]
-			if (currentOriginSessionStorage) {
-				Object.entries(currentOriginSessionStorage).forEach(([key, value]) => {
-					win.sessionStorage.setItem(key, value)
-				})
-			}
+
+		// Function to restore storage for a specific origin
+		const restoreStorageForOrigin = (origin) => {
+			return new Promise((resolve) => {
+				const iframe = document.createElement('iframe')
+				iframe.src = origin
+				iframe.style.display = 'none'
+				document.body.appendChild(iframe)
+
+				iframe.onload = () => {
+					try {
+						// Restore localStorage
+						if (allLocalStorage && allLocalStorage[origin]) {
+							iframe.contentWindow.localStorage.clear()
+							Object.entries(allLocalStorage[origin]).forEach(([key, value]) => {
+								iframe.contentWindow.localStorage.setItem(key, value)
+							})
+						}
+
+						// Restore sessionStorage
+						if (allSessionStorage && allSessionStorage[origin]) {
+							iframe.contentWindow.sessionStorage.clear()
+							Object.entries(allSessionStorage[origin]).forEach(([key, value]) => {
+								iframe.contentWindow.sessionStorage.setItem(key, value)
+							})
+						}
+
+						document.body.removeChild(iframe)
+						resolve()
+					} catch (e) {
+						cy.log(`Could not restore storage for ${origin}:`, e)
+						document.body.removeChild(iframe)
+						resolve()
+					}
+				}
+			})
 		}
-	})
-})
 
-Cypress.Commands.add('restoreSessionStorageForOrigin', (origin) => {
-	cy.visit(origin).then(() => {
-		cy.window().then((win) => {
-			const allSessionStorage = Cypress.env('allSessionStorage')
-			if (allSessionStorage && allSessionStorage[origin]) {
-				// Clear existing sessionStorage
-				win.sessionStorage.clear()
+		// List of origins to restore
+		const origins = [
+			win.location.origin,
+			'https://api.example.com',
+			'https://auth.example.com',
+			'https://cdn.example.com',
+			// Add more origins as needed
+		]
 
-				// Restore sessionStorage for this origin
-				Object.entries(allSessionStorage[origin]).forEach(([key, value]) => {
-					win.sessionStorage.setItem(key, value)
-				})
-
-				cy.log(`Restored SessionStorage for ${origin}`)
-			}
-		})
+		// Restore storage for each origin
+		Promise.all(origins.map((origin) => restoreStorageForOrigin(origin)))
 	})
 })
